@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Relief Allocator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.7/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.7/plugin/weekOfYear.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.7/plugin/isSameOrAfter.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.7/plugin/isBetween.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .tab-active {
+            border-bottom: 2px solid #3b82f6;
+            color: #3b82f6;
+            font-weight: 600;
+        }
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 40;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 50;
+        }
+        .rationale-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+        }
+        .assigned-overlay {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        /* Calendar Styles */
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+        .calendar-day {
+            text-align: center;
+            padding: 0.5rem;
+            cursor: pointer;
+            border-radius: 9999px; /* circle */
+        }
+        .calendar-day:hover {
+            background-color: #e0e7ff; /* indigo-100 */
+        }
+        .calendar-day.selected {
+            background-color: #3b82f6; /* blue-600 */
+            color: white;
+            font-weight: bold;
+        }
+         .calendar-day.today {
+            border: 1px solid #3b82f6;
+        }
+        .calendar-day.empty {
+            cursor: default;
+        }
+        .calendar-day.empty:hover {
+            background-color: transparent;
+        }
+        .calendar-day-header {
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.75rem;
+            color: #6b7280; /* gray-500 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="app" class="flex h-screen">
+        <!-- ===== Left Sidebar (Control Panel) ===== -->
+        <aside class="w-72 bg-white border-r border-gray-200 flex flex-col p-4">
+            <h1 class="text-2xl font-bold text-blue-600 mb-6">Smart Allocator</h1>
+            
+            <button id="assignReliefBtn" class="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg hover:bg-blue-700 transition duration-300 shadow-md flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+                Assign Relief
+            </button>
+
+            <div class="mt-8 flex-grow">
+                <h2 class="text-lg font-semibold text-gray-700 mb-3">Periods Requiring Relief</h2>
+                <div id="reliefTasksSidebar" class="space-y-2">
+                    <!-- Relief tasks will be injected here -->
+                    <p class="text-sm text-gray-500 text-center py-4">No pending relief assignments.</p>
+                </div>
+            </div>
+
+            <div class="text-xs text-gray-400 text-center">
+                <p>&copy; 2025 School Timetabling Solutions</p>
+            </div>
+        </aside>
+
+        <!-- ===== Main Content Area ===== -->
+        <main class="flex-1 flex flex-col">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 flex items-center justify-between p-4 shadow-sm">
+                <div class="flex items-center">
+                    <h2 class="text-xl font-semibold">Relief Allocation Dashboard</h2>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center bg-gray-100 rounded-lg p-1">
+                        <button id="prevDayBtn" class="p-2 rounded-md hover:bg-gray-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+                        </button>
+                        <span id="dateDisplay" class="font-semibold text-gray-700 px-4 whitespace-nowrap"></span>
+                        <button id="nextDayBtn" class="p-2 rounded-md hover:bg-gray-200">
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
+                        </button>
+                        <button id="todayBtn" class="ml-2 px-3 py-1.5 text-sm font-semibold text-blue-600 bg-blue-100 rounded-md hover:bg-blue-200">Today</button>
+                    </div>
+                     <button id="settingsBtn" class="p-2 rounded-full hover:bg-gray-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Tab Navigation -->
+            <div class="bg-white border-b border-gray-200 px-6">
+                <nav class="flex space-x-8 -mb-px">
+                    <button data-tab="allocation" class="tab-button py-4 px-1 text-sm font-medium text-gray-500 hover:text-blue-600 hover:border-b-2 hover:border-blue-600 tab-active">Relief Allocation Candidates</button>
+                    <button data-tab="timetable" class="tab-button py-4 px-1 text-sm font-medium text-gray-500 hover:text-blue-600 hover:border-b-2 hover:border-blue-600">Consolidated Department Timetable</button>
+                    <button data-tab="load" class="tab-button py-4 px-1 text-sm font-medium text-gray-500 hover:text-blue-600 hover:border-b-2 hover:border-blue-600">Teacher Relief Load</button>
+                </nav>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="flex-1 p-6 overflow-y-auto">
+                <div id="allocation" class="tab-content">
+                    <!-- Allocation candidates will be injected here -->
+                </div>
+                <div id="timetable" class="tab-content hidden">
+                    <!-- Department timetable will be injected here -->
+                </div>
+                <div id="load" class="tab-content hidden">
+                    <!-- Relief load overview will be injected here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ===== Modals ===== -->
+    <div id="modalBackdrop" class="modal-backdrop"></div>
+
+    <!-- Assign Relief Modal -->
+    <div id="assignReliefModal" class="modal w-full max-w-2xl bg-white rounded-xl shadow-2xl">
+        <div class="p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h3 id="modalTitle" class="text-xl font-semibold">Report Teacher Unavailability</h3>
+                <button id="closeAssignReliefModal" class="text-gray-400 hover:text-gray-600">&times;</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Left side: Teacher and Calendar -->
+                <div class="space-y-4">
+                    <div>
+                        <label for="teacherSelect" class="block text-sm font-medium text-gray-700">Select Teacher</label>
+                        <select id="teacherSelect" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"></select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Relief Date</label>
+                        <div id="calendarContainer" class="mt-2 p-2 border rounded-md"></div>
+                    </div>
+                </div>
+                <!-- Right side: Relief Type and Periods -->
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Relief Type</label>
+                        <div id="reliefTypeContainer" class="mt-2 flex items-center space-x-4 text-sm">
+                            <label class="flex items-center"><input type="radio" name="reliefType" value="specific" checked class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500 mr-1"> Specific Periods</label>
+                            <label class="flex items-center"><input type="radio" name="reliefType" value="range" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500 mr-1"> Period Range</label>
+                            <label class="flex items-center"><input type="radio" name="reliefType" value="fullDay" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500 mr-1"> Full Day</label>
+                        </div>
+                    </div>
+
+                    <div id="specificPeriodsWrapper">
+                        <label class="block text-sm font-medium text-gray-700">Select Period(s) to Cover</label>
+                        <div id="periodSelectContainer" class="mt-2 p-3 border border-gray-200 rounded-md h-48 overflow-y-auto bg-gray-50">
+                            <p class="text-gray-500">Please select a teacher and date.</p>
+                        </div>
+                    </div>
+
+                    <div id="rangePeriodsWrapper" class="hidden">
+                        <label class="block text-sm font-medium text-gray-700">Select Period Range</label>
+                        <div class="mt-2 flex items-center space-x-4">
+                            <div class="flex-1">
+                                <label for="startPeriodSelect" class="text-xs text-gray-600">From</label>
+                                <select id="startPeriodSelect" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"></select>
+                            </div>
+                            <div class="flex-1">
+                                <label for="endPeriodSelect" class="text-xs text-gray-600">To</label>
+                                <select id="endPeriodSelect" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"></select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="modalActionButtons" class="mt-6 flex justify-end space-x-3">
+                 <button id="deleteReliefBtn" class="hidden bg-red-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-red-700 transition duration-300">Delete</button>
+                <button id="findTeachersBtn" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed">Find Available Teachers</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal w-full max-w-lg bg-white rounded-xl shadow-2xl">
+        <div class="p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-semibold">Settings</h3>
+                <button id="closeSettingsModal" class="text-gray-400 hover:text-gray-600">&times;</button>
+            </div>
+            <div class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Import Timetable</label>
+                    <p class="text-xs text-gray-500 mt-1">Upload the completed Excel file. Need the template? <a href="#" id="downloadTemplateLink" class="text-blue-600 hover:underline">Download it here</a>.</p>
+                    <input type="file" id="fileUploader" class="hidden" accept=".csv">
+                    <button id="uploadBtn" class="mt-2 w-full flex justify-center items-center px-4 py-2 border border-dashed border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                        Upload Excel Sheet
+                    </button>
+                </div>
+                 <div class="border-t pt-6">
+                    <label class="block text-sm font-medium text-gray-700">Term Start Dates</label>
+                    <p class="text-xs text-gray-500 mt-1">Set the start date for Week 1 of each term. Weeks will alternate between Odd and Even from these dates.</p>
+                    <div class="grid grid-cols-2 gap-4 mt-2">
+                        <div>
+                            <label for="term1" class="block text-xs font-medium text-gray-600">Term 1 (Odd)</label>
+                            <input type="date" id="term1" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                        </div>
+                        <div>
+                            <label for="term2" class="block text-xs font-medium text-gray-600">Term 2 (Odd)</label>
+                            <input type="date" id="term2" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                        </div>
+                        <div>
+                            <label for="term3" class="block text-xs font-medium text-gray-600">Term 3 (Odd)</label>
+                            <input type="date" id="term3" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                        </div>
+                         <div>
+                            <label for="term4" class="block text-xs font-medium text-gray-600">Term 4 (Odd)</label>
+                            <input type="date" id="term4" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                        </div>
+                    </div>
+                </div>
+            </div>
+             <div class="mt-6 flex justify-end">
+                <button id="saveSettingsBtn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300">Save & Close</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            dayjs.extend(window.dayjs_plugin_weekOfYear);
+            dayjs.extend(window.dayjs_plugin_isSameOrAfter);
+            dayjs.extend(window.dayjs_plugin_isBetween);
+
+            const PERIODS = [
+                { id: 1, time: '08:00-08:35' }, { id: 2, time: '08:35-09:10' },
+                { id: 3, time: '09:10-09:45' }, { id: 4, time: '09:45-10:20' },
+                { id: 5, time: '10:50-11:25' }, { id: 6, time: '11:25-12:00' },
+                { id: 7, time: '12:00-12:35' }, { id: 8, time: '12:35-13:10' },
+                { id: 9, time: '14:00-14:35' }, { id: 10, time: '14:35-15:10' },
+                { id: 11, time: '15:10-15:45' }, { id: 12, time: '15:45-16:20' },
+                { id: 13, time: '16:35-17:10' }, { id: 14, time: '17:10-17:45' },
+                { id: 15, time: '17:45-18:20' }, { id: 16, time: '18:20-18:55' }
+            ];
+
+            let masterTeachers = [];
+            let teachers = []; // This will hold the daily view of masterTeachers
+            let reliefTasksByDate = {};
+
+            const tabButtons = document.querySelectorAll('.tab-button');
+            const tabContents = document.querySelectorAll('.tab-content');
+            const assignReliefBtn = document.getElementById('assignReliefBtn');
+            const assignReliefModal = document.getElementById('assignReliefModal');
+            const modalBackdrop = document.getElementById('modalBackdrop');
+            const closeAssignReliefModalBtn = document.getElementById('closeAssignReliefModal');
+            const teacherSelect = document.getElementById('teacherSelect');
+            const periodSelectContainer = document.getElementById('periodSelectContainer');
+            const findTeachersBtn = document.getElementById('findTeachersBtn');
+            const deleteReliefBtn = document.getElementById('deleteReliefBtn');
+            const dateDisplay = document.getElementById('dateDisplay');
+            const prevDayBtn = document.getElementById('prevDayBtn');
+            const nextDayBtn = document.getElementById('nextDayBtn');
+            const todayBtn = document.getElementById('todayBtn');
+            const calendarContainer = document.getElementById('calendarContainer');
+            const reliefTypeContainer = document.getElementById('reliefTypeContainer');
+            const specificPeriodsWrapper = document.getElementById('specificPeriodsWrapper');
+            const rangePeriodsWrapper = document.getElementById('rangePeriodsWrapper');
+            const startPeriodSelect = document.getElementById('startPeriodSelect');
+            const endPeriodSelect = document.getElementById('endPeriodSelect');
+            const settingsBtn = document.getElementById('settingsBtn');
+            const settingsModal = document.getElementById('settingsModal');
+            const closeSettingsModal = document.getElementById('closeSettingsModal');
+            const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+            const downloadTemplateLink = document.getElementById('downloadTemplateLink');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const fileUploader = document.getElementById('fileUploader');
+            const allocationContainer = document.getElementById('allocation');
+            const modalTitle = document.getElementById('modalTitle');
+            const term1Input = document.getElementById('term1');
+            const term2Input = document.getElementById('term2');
+            const term3Input = document.getElementById('term3');
+            const term4Input = document.getElementById('term4');
+
+
+            let selectedReliefContext = null;
+            let fullTimetable = {}; 
+            let calendarDisplayMonth = dayjs();
+            let selectedReliefDateInModal = dayjs();
+            let currentViewDate = dayjs();
+            let modalMode = 'new';
+            let taskToEdit = null;
+
+            let termStartDates = {
+                term1: dayjs('2025-01-02'),
+                term2: dayjs('2025-03-24'),
+                term3: dayjs('2025-06-30'),
+                term4: dayjs('2025-09-15'),
+            };
+
+            const getPeriodDetails = (periodId) => PERIODS.find(p => p.id === periodId);
+            const getMasterTeacherDetails = (teacherId) => masterTeachers.find(t => t.id === teacherId);
+            const getTeacherTimetableSlot = (teacher, periodId) => teacher.timetable.find(slot => slot.period === periodId);
+            const countDailyLoad = (teacher) => teacher.timetable.filter(slot => slot.status === 'teaching' || slot.status === 'relief').length;
+            const endsEarlier = (teacher) => {
+                const lastPeriod = [...teacher.timetable].reverse().find(p => p.status === 'teaching' || p.status === 'relief');
+                return lastPeriod ? lastPeriod.period : 99;
+            };
+
+            const openModal = (modal) => {
+                modalBackdrop.style.display = 'block';
+                modal.style.display = 'block';
+            }
+            const closeModal = (modal) => {
+                modalBackdrop.style.display = 'none';
+                modal.style.display = 'none';
+            }
+            
+            // ===== Local Storage Functions =====
+            function saveStateToLocalStorage() {
+                try {
+                    const state = {
+                        fullTimetable,
+                        reliefTasksByDate,
+                        termStartDates: { 
+                            term1: termStartDates.term1.format(),
+                            term2: termStartDates.term2.format(),
+                            term3: termStartDates.term3.format(),
+                            term4: termStartDates.term4.format(),
+                        },
+                        masterTeachers
+                    };
+                    localStorage.setItem('reliefAllocatorState', JSON.stringify(state));
+                } catch (e) {
+                    console.error("Failed to save state to Local Storage", e);
+                }
+            }
+
+            function loadStateFromLocalStorage() {
+                try {
+                    const savedState = localStorage.getItem('reliefAllocatorState');
+                    if (savedState) {
+                        const state = JSON.parse(savedState);
+                        fullTimetable = state.fullTimetable || {};
+                        reliefTasksByDate = state.reliefTasksByDate || {};
+                        masterTeachers = state.masterTeachers || [];
+                        if (state.termStartDates) {
+                            termStartDates = { 
+                                term1: dayjs(state.termStartDates.term1),
+                                term2: dayjs(state.termStartDates.term2),
+                                term3: dayjs(state.termStartDates.term3),
+                                term4: dayjs(state.termStartDates.term4),
+                            };
+                        }
+                        return true; 
+                    }
+                } catch (e) {
+                    console.error("Failed to load state from Local Storage", e);
+                }
+                return false; 
+            }
+
+
+            function renderReliefTasksSidebar() {
+                const container = document.getElementById('reliefTasksSidebar');
+                const dateKey = currentViewDate.format('YYYY-MM-DD');
+                const tasksForDay = reliefTasksByDate[dateKey] || [];
+                
+                if (tasksForDay.length === 0) {
+                    container.innerHTML = `<p class="text-sm text-gray-500 text-center py-4">No pending relief assignments.</p>`;
+                    return;
+                }
+                container.innerHTML = tasksForDay.map(task => {
+                    const statusColor = task.status === 'assigned' ? 'bg-green-500' : 'bg-yellow-500';
+                    return `
+                    <div data-task-id="${task.id}" class="relief-task-item p-3 rounded-lg cursor-pointer ${selectedReliefContext && selectedReliefContext.id === task.id ? 'bg-blue-100 ring-2 ring-blue-500' : 'bg-gray-100 hover:bg-gray-200'}">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="font-semibold text-sm">${task.period.time} - P${task.period.id}</p>
+                                <p class="text-xs text-gray-600">${task.details.level} ${task.details.subject} (${task.details.stream})</p>
+                                <p class="text-xs text-gray-500">Original: ${task.originalTeacher.name}</p>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button data-task-id="${task.id}" class="edit-task-btn p-1.5 hover:bg-gray-300 rounded-full"><svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
+                                <span class="h-2 w-2 rounded-full ${statusColor}"></span>
+                            </div>
+                        </div>
+                    </div>
+                `}).join('');
+
+                container.querySelectorAll('.relief-task-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        if (e.target.closest('.edit-task-btn')) return;
+                        const taskId = item.dataset.taskId;
+                        const context = tasksForDay.find(t => t.id === taskId);
+                        if (context) {
+                            selectedReliefContext = context;
+                            renderUI();
+                        }
+                    });
+                });
+
+                container.querySelectorAll('.edit-task-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const taskId = btn.dataset.taskId;
+                        const task = tasksForDay.find(t => t.id === taskId);
+                        if (task) {
+                            openEditModal(task);
+                        }
+                    });
+                });
+            }
+
+            function renderAllocationView() {
+                if (!selectedReliefContext) {
+                    allocationContainer.innerHTML = `
+                        <div class="text-center py-12">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                            <h3 class="mt-2 text-sm font-medium text-gray-900">No Relief Period Selected</h3>
+                            <p class="mt-1 text-sm text-gray-500">Select a period from the left panel to see ranked teachers.</p>
+                        </div>`;
+                    return;
+                }
+
+                const { period, details, originalTeacher, status, assignedTeacherId, date } = selectedReliefContext;
+                const candidateGroups = findAndRankTeachers(period, details, originalTeacher, date);
+
+                const renderGroup = (teachers, title, isAssignedView) => {
+                    if (teachers.length === 0) return '';
+                    return `
+                        <div class="mb-6 ${isAssignedView ? 'assigned-overlay' : ''}">
+                            <h3 class="text-lg font-bold text-gray-700 pb-2 mb-3 border-b-2">${title}</h3>
+                            <div class="space-y-4">
+                            ${teachers.map((c, index) => {
+                                const isAssignedTeacher = isAssignedView && c.teacher.id === assignedTeacherId;
+                                return `
+                                <div class="bg-white p-4 rounded-lg shadow-sm border ${isAssignedTeacher ? 'ring-2 ring-green-500' : ''} flex flex-col md:flex-row justify-between items-start md:items-center">
+                                    <div class="flex-grow">
+                                        <div class="flex items-center mb-3">
+                                            <span class="text-lg font-bold text-blue-600 w-8">${index + 1}.</span>
+                                            <div>
+                                                <p class="font-bold text-lg">${c.teacher.name}</p>
+                                                <p class="text-sm text-gray-500">${c.teacher.department}</p>
+                                            </div>
+                                        </div>
+                                        <div class="rationale-grid">
+                                            ${Object.entries(c.rationale).map(([key, value]) => `
+                                                <div class="bg-gray-100 p-2 rounded-md text-center">
+                                                    <p class="text-xs font-semibold text-gray-500">${key}</p>
+                                                    <p class="text-sm font-bold">${value}</p>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                    ${!isAssignedView ? `<div class="mt-4 md:mt-0 md:ml-6 flex-shrink-0">
+                                        <button data-teacher-id="${c.teacher.id}" class="confirm-relief-btn w-full bg-green-500 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-600 transition">Assign</button>
+                                    </div>` : ''}
+                                </div>
+                            `}).join('')}
+                            </div>
+                        </div>
+                    `;
+                };
+                
+                let assignedHeader = '';
+                if (status === 'assigned') {
+                    const assignedTeacher = getMasterTeacherDetails(assignedTeacherId);
+                    if (assignedTeacher) {
+                        assignedHeader = `
+                            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-lg mb-6 flex justify-between items-center">
+                                <div>
+                                    <p class="font-bold">Assignment Confirmed</p>
+                                    <p>This period has been assigned to <span class="font-semibold">${assignedTeacher.name}</span>.</p>
+                                </div>
+                                <button data-task-id="${selectedReliefContext.id}" class="undo-btn bg-yellow-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-yellow-600 transition flex items-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" /></svg>
+                                    Undo Assignment
+                                </button>
+                            </div>
+                        `;
+                    }
+                }
+
+                allocationContainer.innerHTML = `
+                    <h2 class="text-xl font-bold mb-4">Recommended Teachers for: <span class="text-blue-600">P${period.id} (${period.time}) - ${details.level} ${details.subject} (${details.stream})</span></h2>
+                    ${assignedHeader}
+                    ${renderGroup(candidateGroups.G1, 'Tier 1: Perfect Match', status === 'assigned')}
+                    ${renderGroup(candidateGroups.G2, 'Tier 2: Subject Specialist', status === 'assigned')}
+                    ${renderGroup(candidateGroups.G3, 'Tier 3: General Availability', status === 'assigned')}
+                `;
+
+                if (status === 'pending') {
+                    allocationContainer.querySelectorAll('.confirm-relief-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => handleConfirmRelief(parseInt(e.target.dataset.teacherId)));
+                    });
+                } else {
+                    const undoBtn = allocationContainer.querySelector('.undo-btn');
+                    if(undoBtn) undoBtn.addEventListener('click', (e) => handleUndo(e.currentTarget.dataset.taskId));
+                }
+            }
+            
+            function renderDepartmentTimetable() {
+                const container = document.getElementById('timetable');
+                 if (!teachers || teachers.length === 0) {
+                    container.innerHTML = `<div class="text-center p-8"><p class="text-gray-500">No teacher data is available to display the timetable.</p></div>`;
+                    return;
+                }
+
+                try {
+                    const sortedTeachers = [...teachers]
+                        .sort((a, b) => {
+                            if (!a.available && b.available) return 1;
+                            if (a.available && !b.available) return -1;
+                            const loadA = countDailyLoad(a);
+                            const loadB = countDailyLoad(b);
+                            if(loadA !== loadB) return loadA - loadB;
+                            return a.weeklyReliefs - b.weeklyReliefs;
+                        });
+
+                    const headerHtml = PERIODS.map(p => `<th class="p-2 border font-semibold text-sm whitespace-nowrap">${p.time}<br>P${p.id}</th>`).join('');
+                    const bodyHtml = sortedTeachers.map(teacher => {
+                        const rowClass = teacher.available ? 'bg-white' : 'bg-gray-200 opacity-60';
+                        const cellsHtml = PERIODS.map(period => {
+                            const slot = getTeacherTimetableSlot(teacher, period.id);
+                            let cellContent = '', cellClass = 'bg-green-100 text-green-800';
+                            if (slot?.status === 'teaching') {
+                                cellClass = 'bg-blue-100 text-blue-800';
+                                cellContent = `<div class="font-semibold">${slot.subject || ''}</div><div class="text-xs">${slot.stream || ''}</div>`;
+                            } else if (slot?.status === 'relief') {
+                                cellClass = 'bg-orange-200 text-orange-800 animate-pulse';
+                                cellContent = `<div class="font-semibold">RELIEF</div><div class="text-xs">${slot.subject || ''}</div>`;
+                            } else if (!teacher.available) {
+                                cellClass = 'bg-gray-300';
+                                cellContent = 'UNAVAILABLE';
+                            }
+                            return `<td class="p-1 border text-center text-xs ${cellClass}">${cellContent}</td>`;
+                        }).join('');
+                        return `<tr class="${rowClass}"><td class="p-2 border font-semibold sticky left-0 bg-gray-50 whitespace-nowrap">${teacher.name}<br><span class="text-xs font-normal text-gray-500">${teacher.department}</span></td>${cellsHtml}</tr>`;
+                    }).join('');
+
+                    container.innerHTML = `
+                        <div class="overflow-x-auto bg-white rounded-lg shadow">
+                            <table class="w-full border-collapse">
+                                <thead class="bg-gray-100 sticky top-0"><tr><th class="p-2 border font-semibold text-sm sticky left-0 bg-gray-200">Teacher</th>${headerHtml}</tr></thead>
+                                <tbody>${bodyHtml}</tbody>
+                            </table>
+                        </div>`;
+                } catch(error) {
+                    console.error("Error rendering department timetable:", error);
+                    container.innerHTML = `<div class="text-center p-8"><p class="text-red-500">An error occurred while rendering the timetable. Please check the console.</p></div>`;
+                }
+            }
+
+            function renderReliefLoadTable() {
+                const container = document.getElementById('load');
+                 if (!teachers || teachers.length === 0) {
+                    container.innerHTML = `<div class="text-center p-8"><p class="text-gray-500">No teacher data is available to display the relief load.</p></div>`;
+                    return;
+                }
+
+                let currentTermStartDate = termStartDates.term1;
+                if (currentViewDate.isSameOrAfter(termStartDates.term4)) currentTermStartDate = termStartDates.term4;
+                else if (currentViewDate.isSameOrAfter(termStartDates.term3)) currentTermStartDate = termStartDates.term3;
+                else if (currentViewDate.isSameOrAfter(termStartDates.term2)) currentTermStartDate = termStartDates.term2;
+                const currentTermEndDate = currentTermStartDate.add(10, 'week');
+                
+                const termReliefCounts = {};
+                masterTeachers.forEach(t => termReliefCounts[t.id] = 0);
+
+                Object.keys(reliefTasksByDate).forEach(dateKey => {
+                    const date = dayjs(dateKey);
+                    if (date.isBetween(currentTermStartDate, currentTermEndDate, null, '[]')) {
+                         reliefTasksByDate[dateKey].forEach(task => {
+                            if (task.status === 'assigned' && task.assignedTeacherId) {
+                                termReliefCounts[task.assignedTeacherId]++;
+                            }
+                        });
+                    }
+                });
+
+                const tableHtml = teachers.map(teacher => {
+                    const dailyTeaching = teacher.timetable.filter(s => s.status === 'teaching').length;
+                    const dailyRelief = teacher.timetable.filter(s => s.status === 'relief').length;
+                    const termReliefs = termReliefCounts[teacher.id] || 0;
+                    return `
+                        <tr class="bg-white border-b hover:bg-gray-50">
+                            <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${teacher.name}</td>
+                            <td class="px-6 py-4">${teacher.department}</td>
+                            <td class="px-6 py-4 text-center">${dailyTeaching}</td>
+                            <td class="px-6 py-4 text-center font-bold text-blue-600">${dailyRelief}</td>
+                            <td class="px-6 py-4 text-center font-bold text-green-600">${teacher.weeklyReliefs}</td>
+                             <td class="px-6 py-4 text-center font-bold text-purple-600">${termReliefs}</td>
+                        </tr>`;
+                }).join('');
+                container.innerHTML = `
+                    <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
+                        <table class="w-full text-sm text-left text-gray-500">
+                            <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3">Teacher Name</th><th scope="col" class="px-6 py-3">Department</th>
+                                    <th scope="col" class="px-6 py-3 text-center">Scheduled Periods (Today)</th><th scope="col" class="px-6 py-3 text-center">Reliefs (Today)</th>
+                                    <th scope="col" class="px-6 py-3 text-center">Reliefs (This Week)</th>
+                                    <th scope="col" class="px-6 py-3 text-center">Total Reliefs (This Term)</th>
+                                </tr>
+                            </thead>
+                            <tbody>${tableHtml}</tbody>
+                        </table>
+                    </div>`;
+            }
+
+            function renderTeacherSelect() {
+                teacherSelect.innerHTML = `<option value="">Select a teacher...</option>${masterTeachers.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}`;
+            }
+            
+            function renderPeriodSelect(teacher, date) {
+                if (!teacher || !date) {
+                    periodSelectContainer.innerHTML = '<p class="text-gray-500">Please select a teacher and date.</p>';
+                    return;
+                }
+                const timetable = getTeacherTimetableForDate(teacher.name, date);
+                const teachingSlots = timetable.filter(slot => slot.status === 'teaching');
+
+                if (teachingSlots.length === 0) {
+                     periodSelectContainer.innerHTML = '<p class="text-gray-500">This teacher has no lessons on the selected date.</p>';
+                     return;
+                }
+                periodSelectContainer.innerHTML = teachingSlots.map(slot => {
+                    const period = getPeriodDetails(slot.period);
+                    return `<label class="flex items-center space-x-3 p-2 hover:bg-gray-200 rounded-md"><input type="checkbox" value="${slot.period}" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"><span><span class="font-medium">P${period.id} (${period.time})</span> - ${slot.level} ${slot.subject} (${slot.stream})</span></label>`;
+                }).join('');
+            }
+
+            function populatePeriodDropdowns() {
+                const options = PERIODS.map(p => `<option value="${p.id}">P${p.id} (${p.time})</option>`).join('');
+                startPeriodSelect.innerHTML = options;
+                endPeriodSelect.innerHTML = options;
+            }
+            
+            function renderCalendar(monthDate, selectedDate) {
+                const month = monthDate.month(), year = monthDate.year();
+                const firstDay = dayjs(`${year}-${month + 1}-01`).day(), daysInMonth = monthDate.daysInMonth();
+
+                let html = `<div class="flex items-center justify-between mb-2"><button id="prevMonthBtn" class="p-1 rounded-full hover:bg-gray-200">&lt;</button><div class="font-semibold">${monthDate.format('MMMM YYYY')}</div><button id="nextMonthBtn" class="p-1 rounded-full hover:bg-gray-200">&gt;</button></div><div class="calendar-grid">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => `<div class="calendar-day-header">${d}</div>`).join('')}`;
+                for (let i = 0; i < firstDay; i++) html += `<div class="calendar-day empty"></div>`;
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const isSelected = selectedDate.date() === i && selectedDate.month() === month;
+                    const isToday = dayjs().isSame(dayjs(`${year}-${month + 1}-${i}`), 'day');
+                    let classes = 'calendar-day';
+                    if (isSelected) classes += ' selected';
+                    if (isToday) classes += ' today';
+                    html += `<div class="${classes}" data-day="${i}">${i}</div>`;
+                }
+                html += '</div>';
+                calendarContainer.innerHTML = html;
+                
+                document.getElementById('prevMonthBtn').addEventListener('click', () => {
+                    calendarDisplayMonth = calendarDisplayMonth.subtract(1, 'month');
+                    renderCalendar(calendarDisplayMonth, selectedReliefDateInModal);
+                });
+                document.getElementById('nextMonthBtn').addEventListener('click', () => {
+                    calendarDisplayMonth = calendarDisplayMonth.add(1, 'month');
+                    renderCalendar(calendarDisplayMonth, selectedReliefDateInModal);
+                });
+                calendarContainer.querySelectorAll('.calendar-day:not(.empty)').forEach(dayEl => {
+                    dayEl.addEventListener('click', () => {
+                        const day = parseInt(dayEl.dataset.day);
+                        selectedReliefDateInModal = calendarDisplayMonth.date(day);
+                        const selectedTeacherId = teacherSelect.value;
+                        const teacher = getMasterTeacherDetails(parseInt(selectedTeacherId));
+                        renderPeriodSelect(teacher, selectedReliefDateInModal);
+                        renderCalendar(calendarDisplayMonth, selectedReliefDateInModal);
+                    });
+                });
+            }
+
+            function renderUI() {
+                renderReliefTasksSidebar();
+                renderAllocationView();
+                renderDepartmentTimetable();
+                renderReliefLoadTable();
+            }
+
+            function findAndRankTeachers(periodToCover, reliefDetails, originalTeacher, reliefDateStr) {
+                const reliefDate = dayjs(reliefDateStr);
+                const dateKey = reliefDate.format('YYYY-MM-DD');
+                const tasksForDay = reliefTasksByDate[dateKey] || [];
+                const unavailableTeacherIds = new Set(tasksForDay.map(task => task.originalTeacher.id));
+                unavailableTeacherIds.add(originalTeacher.id);
+
+                let allCandidates = [];
+
+                masterTeachers.forEach(teacher => {
+                    if (unavailableTeacherIds.has(teacher.id)) return;
+                    
+                    const timetableForDate = getTeacherTimetableForDate(teacher.name, reliefDate);
+                    const teacherForRanking = { ...teacher, timetable: timetableForDate };
+                    
+                    const slot = getTeacherTimetableSlot(teacherForRanking, periodToCover.id);
+                    if (!slot || slot.status !== 'free') return;
+
+                    let score = 100;
+                    let rationale = {};
+                    let group = 'G3';
+                    
+                    const subjectInfo = teacherForRanking.subjectsTaught.find(s => s.subject === reliefDetails.subject);
+                    const teachesSubject = !!subjectInfo;
+                    
+                    let isPerfectMatch = false;
+                    if (teachesSubject) {
+                        isPerfectMatch = subjectInfo.combinations.some(combo => 
+                            combo.level === reliefDetails.level && combo.stream === reliefDetails.stream
+                        );
+                    }
+
+                    if (isPerfectMatch) {
+                        group = 'G1'; 
+                        score += 1000;
+                    } else if (teachesSubject) {
+                        group = 'G2';
+                        score += 500;
+                    }
+                    
+                    let constraint = 'None';
+                    const beforeSlot = getTeacherTimetableSlot(teacherForRanking, periodToCover.id - 1);
+                    const afterSlot = getTeacherTimetableSlot(teacherForRanking, periodToCover.id + 1);
+                    if (beforeSlot?.status === 'teaching' || beforeSlot?.status === 'relief') {
+                        score -= 20;
+                        constraint = '⚠️ Before';
+                    }
+                     if (afterSlot?.status === 'teaching' || afterSlot?.status === 'relief') {
+                        score -= 20;
+                        constraint = constraint === '⚠️ Before' ? '⚠️ Before & After' : '⚠️ After';
+                    }
+                    rationale['Constraints'] = constraint;
+
+                    const dailyLoad = countDailyLoad(teacherForRanking);
+                    score -= dailyLoad * 5;
+                    rationale['Daily Load'] = `${dailyLoad}/${PERIODS.length}`;
+
+                    if (periodToCover.id <= 4) {
+                       const endPeriod = endsEarlier(teacherForRanking);
+                       score += Math.max(0, (PERIODS.length - endPeriod) * 2);
+                    }
+
+                    score -= teacherForRanking.weeklyReliefs * 10;
+                    rationale['Weekly Reliefs'] = `${teacherForRanking.weeklyReliefs}`;
+                    
+                    const lastTeachingPeriod = Math.max(0, ...teacherForRanking.timetable.filter(s => s.status === 'teaching').map(s => s.period));
+                    if (lastTeachingPeriod > 0 && periodToCover.id > lastTeachingPeriod) {
+                        const breakDuration = periodToCover.id - lastTeachingPeriod;
+                        if (breakDuration > 4) {
+                            score -= 30;
+                            rationale['⚠️ Long Break'] = `${breakDuration - 1} periods`;
+                        }
+                    }
+                    allCandidates.push({ teacher, score, rationale, group });
+                });
+
+                return {
+                    G1: allCandidates.filter(c => c.group === 'G1').sort((a, b) => b.score - a.score),
+                    G2: allCandidates.filter(c => c.group === 'G2').sort((a, b) => b.score - a.score),
+                    G3: allCandidates.filter(c => c.group === 'G3').sort((a, b) => b.score - a.score),
+                };
+            }
+            
+            function generateAndDownloadTemplate() {
+                const headers = ['Teacher'];
+                const weekTypes = ['Odd', 'Even'], days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+                weekTypes.forEach(week => days.forEach(day => PERIODS.forEach(p => headers.push(`${week} ${day} P${p.id}`))));
+                let csvContent = headers.join(',') + '\n';
+                csvContent += `INSTRUCTIONS,${Array(headers.length - 1).fill('"Use format: Level Subject Stream or Free, e.g., 3 Chemistry G1"').join(',')}\n`;
+                ['Mr. Tan Ah Beng', 'Mrs. Lee Siew Mei'].forEach(teacherName => {
+                    let row = [`"${teacherName}"`];
+                    for (let i = 0; i < 2 * 5 * PERIODS.length; i++) {
+                        if (i % 17 === 0) row.push('"4 Physics G1"');
+                        else if (i % 17 === 1) row.push('"2 Biology G2"');
+                        else row.push('"Free"');
+                    }
+                    csvContent += row.join(',') + '\n';
+                });
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "Timetable_Template_2_Weeks.csv";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            function parseCSVAndUpdateData(csvText) {
+                const lines = csvText.split('\n').filter(line => line.trim() !== '');
+                if (lines.length < 3) return alert("CSV file is either empty or does not contain enough data.");
+                
+                const headerLine = lines[0].split(',');
+                fullTimetable = {};
+                let newMasterTeachers = [];
+
+                for (let i = 2; i < lines.length; i++) {
+                    const data = lines[i].split(',');
+                    const teacherName = data[0].replace(/"/g, '').trim();
+                    if (!teacherName) continue;
+                    fullTimetable[teacherName] = { Odd: {}, Even: {} };
+                    
+                    headerLine.slice(1).forEach((header, index) => {
+                        const cellValue = data[index + 1] ? data[index + 1].replace(/"/g, '').trim() : "Free";
+                        const [weekType, day, periodStr] = header.split(' ');
+                        const periodId = parseInt(periodStr.substring(1));
+                        if (!fullTimetable[teacherName][weekType][day]) fullTimetable[teacherName][weekType][day] = [];
+                        
+                        let slotData = { period: periodId, status: 'free' };
+                        if (cellValue.toLowerCase() !== 'free') {
+                            const parts = cellValue.split(' ');
+                            let level = 0, subject = cellValue, stream = 'N/A';
+                            if (parts.length >= 2) {
+                                const firstPart = parts[0];
+                                const lastPart = parts[parts.length - 1];
+                                const isFirstPartLevel = !isNaN(parseInt(firstPart));
+                                const isLastPartStream = ['G1', 'G2', 'G3'].includes(lastPart);
+                                if (isFirstPartLevel && isLastPartStream) {
+                                    level = parseInt(firstPart);
+                                    stream = lastPart;
+                                    subject = parts.slice(1, -1).join(' ');
+                                } else if (isFirstPartLevel) {
+                                    level = parseInt(firstPart);
+                                    subject = parts.slice(1).join(' ');
+                                } else if (isLastPartStream) {
+                                    stream = lastPart;
+                                    subject = parts.slice(0, -1).join(' ');
+                                }
+                            }
+                            slotData = { period: periodId, subject, level, stream, status: 'teaching' };
+                        }
+                        fullTimetable[teacherName][weekType][day].push(slotData);
+                    });
+                }
+                
+                for (const teacherName in fullTimetable) {
+                    const teachingProfile = new Map(); 
+                    ['Odd', 'Even'].forEach(weekType => {
+                        for (const day in fullTimetable[teacherName][weekType]) {
+                            fullTimetable[teacherName][weekType][day].forEach(slot => {
+                                if (slot.status === 'teaching' && slot.subject && slot.level && slot.stream) {
+                                    if (!teachingProfile.has(slot.subject)) {
+                                        teachingProfile.set(slot.subject, new Set());
+                                    }
+                                    teachingProfile.get(slot.subject).add(`${slot.level}|${slot.stream}`);
+                                }
+                            });
+                        }
+                    });
+
+                    const subjectsTaught = Array.from(teachingProfile.entries()).map(([subject, combinationsSet]) => {
+                        const combinations = Array.from(combinationsSet).map(combo => {
+                            const [level, stream] = combo.split('|');
+                            return { level: parseInt(level), stream };
+                        });
+                        return { subject, combinations };
+                    });
+                    newMasterTeachers.push({ id: newMasterTeachers.length + 1, name: teacherName, department: 'Science', weeklyReliefs: 0, subjectsTaught });
+                }
+                masterTeachers = newMasterTeachers;
+                saveStateToLocalStorage();
+                loadTimetableForDate(dayjs());
+                alert("Timetable imported successfully!");
+            }
+
+             function getWeekTypeForDate(date) {
+                let termStartDate = termStartDates.term1; 
+                if (date.isSameOrAfter(termStartDates.term4)) {
+                    termStartDate = termStartDates.term4;
+                } else if (date.isSameOrAfter(termStartDates.term3)) {
+                    termStartDate = termStartDates.term3;
+                } else if (date.isSameOrAfter(termStartDates.term2)) {
+                    termStartDate = termStartDates.term2;
+                }
+
+                const weekDiff = date.startOf('week').diff(termStartDate.startOf('week'), 'week');
+                return (weekDiff % 2 === 0) ? 'Odd' : 'Even';
+            }
+
+            function getTeacherTimetableForDate(teacherName, date) {
+                if (!fullTimetable[teacherName]) return PERIODS.map(p => ({ period: p.id, status: 'free' }));
+
+                const weekType = getWeekTypeForDate(date);
+                const day = date.format('ddd');
+                
+                if (fullTimetable[teacherName]?.[weekType]?.[day]) {
+                    return JSON.parse(JSON.stringify(fullTimetable[teacherName][weekType][day]));
+                }
+                return PERIODS.map(p => ({ period: p.id, status: 'free' }));
+            }
+
+            function loadTimetableForDate(date) {
+                try {
+                    currentViewDate = date;
+                    const dateKey = date.format('YYYY-MM-DD');
+                    const tasksForDay = reliefTasksByDate[dateKey] || [];
+                    const unavailableTeacherIds = new Set(tasksForDay.map(task => task.originalTeacher.id));
+
+                    teachers = masterTeachers.map(teacher => ({
+                        ...teacher,
+                        timetable: getTeacherTimetableForDate(teacher.name, date),
+                        available: !unavailableTeacherIds.has(teacher.id)
+                    }));
+                    
+                    selectedReliefContext = tasksForDay.length > 0 ? tasksForDay[0] : null;
+                    dateDisplay.textContent = `${date.format('ddd, D MMM YYYY')} (${getWeekTypeForDate(date)} Week)`;
+                    renderUI();
+                } catch(e) {
+                    console.error("Failed to load timetable for date:", date.format("YYYY-MM-DD"), e);
+                    document.body.innerHTML = `<div class="p-8 text-red-600">A critical error occurred. Please refresh the page. Check console for details.</div>`;
+                }
+            }
+
+            function handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = e => parseCSVAndUpdateData(e.target.result);
+                    reader.readAsText(file);
+                }
+            }
+
+            function handleConfirmRelief(assignedTeacherId) {
+                const task = selectedReliefContext;
+                if (!task || task.status === 'assigned') return;
+                
+                const reliefDate = dayjs(task.date);
+                const assignedTeacherMaster = getMasterTeacherDetails(assignedTeacherId);
+                const timetableForReliefDate = getTeacherTimetableForDate(assignedTeacherMaster.name, reliefDate);
+                const slot = timetableForReliefDate.find(s => s.period === task.period.id);
+                slot.status = 'relief';
+                slot.subject = `RELIEF (${task.details.subject})`;
+
+                const weekType = getWeekTypeForDate(reliefDate);
+                const day = reliefDate.format('ddd');
+                fullTimetable[assignedTeacherMaster.name][weekType][day] = timetableForReliefDate;
+                
+                assignedTeacherMaster.weeklyReliefs += 1;
+                task.status = 'assigned';
+                task.assignedTeacherId = assignedTeacherId;
+                
+                saveStateToLocalStorage();
+                loadTimetableForDate(currentViewDate);
+            }
+            
+            function handleUndo(taskId) {
+                const dateKey = selectedReliefContext.date;
+                const task = (reliefTasksByDate[dateKey] || []).find(t => t.id === taskId);
+                if (!task || task.status !== 'assigned') return;
+
+                const reliefDate = dayjs(task.date);
+                const assignedTeacherMaster = getMasterTeacherDetails(task.assignedTeacherId);
+                assignedTeacherMaster.weeklyReliefs -= 1;
+
+                const timetableForReliefDate = getTeacherTimetableForDate(assignedTeacherMaster.name, reliefDate);
+                const slot = timetableForReliefDate.find(s => s.period === task.period.id);
+                slot.status = 'free';
+                delete slot.subject;
+                delete slot.stream;
+                delete slot.level;
+                
+                const weekType = getWeekTypeForDate(reliefDate);
+                const day = reliefDate.format('ddd');
+                fullTimetable[assignedTeacherMaster.name][weekType][day] = timetableForReliefDate;
+
+                task.status = 'pending';
+                task.assignedTeacherId = null;
+                selectedReliefContext = task;
+
+                saveStateToLocalStorage();
+                loadTimetableForDate(currentViewDate);
+            }
+
+            function openEditModal(task) {
+                modalMode = 'edit';
+                taskToEdit = task;
+                const teacher = task.originalTeacher;
+                const date = dayjs(task.date);
+
+                modalTitle.textContent = "Edit Relief Task";
+                findTeachersBtn.textContent = "Update Relief";
+                deleteReliefBtn.classList.remove('hidden');
+
+                teacherSelect.value = teacher.id;
+                teacherSelect.disabled = true;
+
+                calendarDisplayMonth = date;
+                selectedReliefDateInModal = date;
+                renderCalendar(calendarDisplayMonth, selectedReliefDateInModal);
+
+                 renderPeriodSelect(teacher, date);
+                
+                const dateKey = date.format('YYYY-MM-DD');
+                const allTasksForTeacherOnDay = (reliefTasksByDate[dateKey] || []).filter(t => t.originalTeacher.id === teacher.id);
+                const periodIds = new Set(allTasksForTeacherOnDay.map(t => t.period.id));
+                periodSelectContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    cb.checked = periodIds.has(parseInt(cb.value));
+                });
+                
+                openModal(assignReliefModal);
+            }
+
+            function handleDeleteAllTasksForTeacherOnDate(teacherId, date) {
+                const dateKey = date.format('YYYY-MM-DD');
+                const tasksForDay = reliefTasksByDate[dateKey] || [];
+                const tasksToRemove = tasksForDay.filter(t => t.originalTeacher.id === teacherId);
+
+                tasksToRemove.forEach(task => {
+                    if (task.status === 'assigned') {
+                        const assignedTeacherMaster = getMasterTeacherDetails(task.assignedTeacherId);
+                        assignedTeacherMaster.weeklyReliefs -= 1;
+                        const timetableForReliefDate = getTeacherTimetableForDate(assignedTeacherMaster.name, date);
+                        const slot = timetableForReliefDate.find(s => s.period === task.period.id);
+                        slot.status = 'free';
+                        delete slot.subject;
+                        delete slot.stream;
+                        delete slot.level;
+                        const weekType = getWeekTypeForDate(date);
+                        const day = date.format('ddd');
+                        fullTimetable[assignedTeacherMaster.name][weekType][day] = timetableForReliefDate;
+                    }
+                });
+                
+                reliefTasksByDate[dateKey] = tasksForDay.filter(t => t.originalTeacher.id !== teacherId);
+                
+                closeModal(assignReliefModal);
+                saveStateToLocalStorage();
+                loadTimetableForDate(currentViewDate);
+            }
+
+
+            assignReliefBtn.addEventListener('click', () => {
+                modalMode = 'new';
+                taskToEdit = null;
+                modalTitle.textContent = "Report Teacher Unavailability";
+                findTeachersBtn.textContent = "Find Available Teachers";
+                deleteReliefBtn.classList.add('hidden');
+                teacherSelect.disabled = false;
+                
+                renderTeacherSelect();
+                const today = dayjs();
+                calendarDisplayMonth = today;
+                selectedReliefDateInModal = today;
+                renderCalendar(calendarDisplayMonth, selectedReliefDateInModal);
+                renderPeriodSelect(null, null);
+                openModal(assignReliefModal);
+            });
+            closeAssignReliefModalBtn.addEventListener('click', () => closeModal(assignReliefModal));
+
+            teacherSelect.addEventListener('change', (e) => {
+                const selectedId = e.target.value;
+                if (!selectedId) return renderPeriodSelect(null, null);
+                const teacher = getMasterTeacherDetails(parseInt(selectedId));
+                renderPeriodSelect(teacher, selectedReliefDateInModal);
+            });
+            
+            reliefTypeContainer.addEventListener('change', (e) => {
+                const type = e.target.value;
+                specificPeriodsWrapper.classList.toggle('hidden', type !== 'specific');
+                rangePeriodsWrapper.classList.toggle('hidden', type !== 'range');
+            });
+
+            findTeachersBtn.addEventListener('click', () => {
+                const unavailableTeacherId = parseInt(teacherSelect.value);
+                if (!unavailableTeacherId) return alert('Please select a teacher.');
+                
+                const unavailableTeacherMaster = getMasterTeacherDetails(unavailableTeacherId);
+                const dateKey = selectedReliefDateInModal.format('YYYY-MM-DD');
+
+                // If editing, first remove all old tasks for this teacher on this day
+                if (modalMode === 'edit' && taskToEdit) {
+                    const tasksForDay = reliefTasksByDate[dateKey] || [];
+                     const otherTasks = tasksForDay.filter(t => t.originalTeacher.id !== unavailableTeacherId);
+                    
+                    const tasksToUndo = tasksForDay.filter(t => t.originalTeacher.id === unavailableTeacherId);
+                    tasksToUndo.forEach(task => {
+                         if (task.status === 'assigned') {
+                            const assignedTeacher = getMasterTeacherDetails(task.assignedTeacherId);
+                            assignedTeacher.weeklyReliefs -= 1;
+                            const tTable = getTeacherTimetableForDate(assignedTeacher.name, dayjs(task.date));
+                            const slot = tTable.find(s => s.period === task.period.id);
+                            slot.status = 'free';
+                            delete slot.subject;
+                            const weekType = getWeekTypeForDate(dayjs(task.date));
+                            const day = dayjs(task.date).format('ddd');
+                            fullTimetable[assignedTeacher.name][weekType][day] = tTable;
+                        }
+                    });
+                     reliefTasksByDate[dateKey] = otherTasks;
+                }
+
+                const reliefType = document.querySelector('input[name="reliefType"]:checked').value;
+                const selectedPeriodIds = new Set();
+                const teacherTimetableForDate = getTeacherTimetableForDate(unavailableTeacherMaster.name, selectedReliefDateInModal);
+                const teacherLessons = teacherTimetableForDate.filter(s => s.status === 'teaching');
+
+                if (reliefType === 'specific') {
+                    periodSelectContainer.querySelectorAll('input[type="checkbox"]:checked').forEach(checkbox => selectedPeriodIds.add(parseInt(checkbox.value)));
+                } else if (reliefType === 'fullDay') {
+                    teacherLessons.forEach(slot => selectedPeriodIds.add(slot.period));
+                } else if (reliefType === 'range') {
+                    const startPeriod = parseInt(startPeriodSelect.value);
+                    const endPeriod = parseInt(endPeriodSelect.value);
+                    if (startPeriod && endPeriod && endPeriod >= startPeriod) {
+                        teacherLessons.forEach(slot => {
+                            if (slot.period >= startPeriod && slot.period <= endPeriod) selectedPeriodIds.add(slot.period);
+                        });
+                    }
+                }
+
+                if (selectedPeriodIds.size === 0 && modalMode === 'new') return alert('Please select at least one period to cover.');
+                if (selectedPeriodIds.size === 0 && modalMode === 'edit') { 
+                     closeModal(assignReliefModal);
+                     loadTimetableForDate(currentViewDate);
+                     return;
+                }
+
+                const newTasks = [];
+                if (!reliefTasksByDate[dateKey]) reliefTasksByDate[dateKey] = [];
+
+                selectedPeriodIds.forEach(periodId => {
+                    const taskId = `${unavailableTeacherId}-${dateKey}-${periodId}`;
+                    const originalSlot = teacherLessons.find(s => s.period === periodId);
+                    if (!originalSlot) return; 
+                    
+                    const newTask = {
+                        id: taskId, date: dateKey, period: getPeriodDetails(periodId),
+                        details: { subject: originalSlot.subject, level: originalSlot.level, stream: originalSlot.stream },
+                        originalTeacher: unavailableTeacherMaster, status: 'pending', assignedTeacherId: null
+                    };
+                    reliefTasksByDate[dateKey].push(newTask);
+                    newTasks.push(newTask);
+                });
+                
+                closeModal(assignReliefModal);
+                currentViewDate = selectedReliefDateInModal;
+                saveStateToLocalStorage();
+                loadTimetableForDate(currentViewDate);
+            });
+            
+            deleteReliefBtn.addEventListener('click', () => {
+                if (modalMode === 'edit' && taskToEdit) {
+                    handleDeleteAllTasksForTeacherOnDate(taskToEdit.originalTeacher.id, dayjs(taskToEdit.date));
+                }
+            });
+
+
+            settingsBtn.addEventListener('click', () => openModal(settingsModal));
+            closeSettingsModal.addEventListener('click', () => closeModal(settingsModal));
+            saveSettingsBtn.addEventListener('click', () => {
+                termStartDates.term1 = dayjs(term1Input.value);
+                termStartDates.term2 = dayjs(term2Input.value);
+                termStartDates.term3 = dayjs(term3Input.value);
+                termStartDates.term4 = dayjs(term4Input.value);
+                saveStateToLocalStorage();
+                loadTimetableForDate(currentViewDate);
+                closeModal(settingsModal);
+            });
+            downloadTemplateLink.addEventListener('click', e => { e.preventDefault(); generateAndDownloadTemplate(); });
+            uploadBtn.addEventListener('click', () => fileUploader.click());
+            fileUploader.addEventListener('change', handleFileUpload);
+            modalBackdrop.addEventListener('click', () => { closeModal(assignReliefModal); closeModal(settingsModal); });
+            
+            function initializeMockFullTimetable() {
+                const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+                const mockMasterTeachers = [
+                    { id: 1, name: 'Mr. Tan Ah Beng', department: 'Science', weeklyReliefs: 0, subjectsTaught: [] },
+                    { id: 2, name: 'Mrs. Lee Siew Mei', department: 'Science', weeklyReliefs: 0, subjectsTaught: [] },
+                    { id: 3, name: 'Ms. Siti Binte Rahim', department: 'Science', weeklyReliefs: 0, subjectsTaught: [] },
+                    { id: 4, name: 'Mr. David Chen', department: 'Science', weeklyReliefs: 0, subjectsTaught: [] },
+                    { id: 5, name: 'Ms. Priya Sharma', department: 'Science', weeklyReliefs: 0, subjectsTaught: [] },
+                    { id: 6, name: 'Mr. Johnathan Ho', department: 'Science', weeklyReliefs: 0, subjectsTaught: [] }
+                ];
+                
+                mockMasterTeachers[0].subjectsTaught = [{subject: "Physics", combinations: [{level: 4, stream: "G1"}, {level: 3, stream: "G2"}]}, {subject: "Science", combinations: [{level: 2, stream: "G3"}]}];
+                mockMasterTeachers[1].subjectsTaught = [{subject: "Chemistry", combinations: [{level: 3, stream: "G1"}]}];
+                mockMasterTeachers[2].subjectsTaught = [{subject: "Physics", combinations: [{level: 4, stream: "G1"}]}, {subject: "Science", combinations: [{level: 2, stream: "G3"}]}];
+                mockMasterTeachers[3].subjectsTaught = [{subject: "Chemistry", combinations: [{level: 3, stream: "G1"}]}];
+                mockMasterTeachers[4].subjectsTaught = [{subject: "Biology", combinations: [{level: 2, stream: "G2"}]}];
+                mockMasterTeachers[5].subjectsTaught = [{subject: "Science", combinations: [{level: 1, stream: "G3"}]}];
+
+                masterTeachers = mockMasterTeachers;
+
+                masterTeachers.forEach(teacher => {
+                    fullTimetable[teacher.name] = { Odd: {}, Even: {} };
+                    ['Odd', 'Even'].forEach(weekType => {
+                        days.forEach(day => {
+                            let timetable = PERIODS.map(p => ({ period: p.id, status: 'free' }));
+                            if (teacher.id === 1) { // Mr Tan
+                                timetable[0] = { period: 1, status: 'teaching', level: 4, subject: 'Physics', stream: 'G1'};
+                                timetable[2] = { period: 3, status: 'teaching', level: 2, subject: 'Science', stream: 'G3'};
+                                if (day === 'Tue') timetable[8] = { period: 9, status: 'teaching', level: 3, subject: 'Physics', stream: 'G2'};
+                            } else if (teacher.id === 2) { // Mrs Lee
+                                 timetable[4] = { period: 5, status: 'teaching', level: 3, subject: 'Chemistry', stream: 'G1'};
+                                 timetable[5] = { period: 6, status: 'teaching', level: 3, subject: 'Chemistry', stream: 'G1'};
+                            }
+                            fullTimetable[teacher.name][weekType][day] = timetable;
+                        });
+                    });
+                });
+            }
+
+            function initializeApp() {
+                prevDayBtn.addEventListener('click', () => {
+                    currentViewDate = currentViewDate.subtract(1, 'day');
+                    loadTimetableForDate(currentViewDate);
+                });
+                 nextDayBtn.addEventListener('click', () => {
+                    currentViewDate = currentViewDate.add(1, 'day');
+                    loadTimetableForDate(currentViewDate);
+                });
+                 todayBtn.addEventListener('click', () => {
+                    currentViewDate = dayjs();
+                    loadTimetableForDate(currentViewDate);
+                });
+
+
+                tabButtons.forEach(button => {
+                    button.addEventListener('click', () => {
+                        const tabId = button.dataset.tab;
+                        tabButtons.forEach(btn => btn.classList.toggle('tab-active', btn === button));
+                        tabContents.forEach(content => content.classList.toggle('hidden', content.id !== tabId));
+                    });
+                });
+
+                const dataLoaded = loadStateFromLocalStorage();
+                if (!dataLoaded || Object.keys(fullTimetable).length === 0) {
+                    initializeMockFullTimetable();
+                }
+                
+                term1Input.value = termStartDates.term1.format('YYYY-MM-DD');
+                term2Input.value = termStartDates.term2.format('YYYY-MM-DD');
+                term3Input.value = termStartDates.term3.format('YYYY-MM-DD');
+                term4Input.value = termStartDates.term4.format('YYYY-MM-DD');
+
+                populatePeriodDropdowns();
+                loadTimetableForDate(currentViewDate);
+            }
+
+            initializeApp();
+        });
+    </script>
+
+</body>
+</html>
+
